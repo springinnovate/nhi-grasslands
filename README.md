@@ -5,7 +5,7 @@
 *These are the point data scope of what we're trying to model.*
 
 
-This repository includes a small “tracer” script for the **NIH grasslands project** that demonstrates an end-to-end workflow:
+This repository includes a small "tracer" script for the **NIH grasslands project** that demonstrates an end-to-end workflow:
 
 1. Read point observations from a CSV (lat/lon + date + target fields)
 2. Pull **Google Earth Engine (GEE)** *Satellite Embedding V1 (Annual)* vectors for each point-year
