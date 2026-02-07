@@ -1,8 +1,8 @@
-# GEE Satellite Embedding Tracer (NIH Grasslands Project)
+# GEE Satellite Embedding Tracer (NHI Grasslands Project)
 
 ![Point distribution](point_distribution.png)
 
-*These are the point data scope of what we’re trying to model.*
+*These are the point data scope of what we're trying to model.*
 
 
 This repository includes a small “tracer” script for the **NIH grasslands project** that demonstrates an end-to-end workflow:
