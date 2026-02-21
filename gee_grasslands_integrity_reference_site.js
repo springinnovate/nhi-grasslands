@@ -1,3 +1,4 @@
+// This is the process described in https://docs.google.com/document/d/1ox2s72J9uOiNn-qo1j_MsCrwlTC_iYNt5g8_CgWHn1U/edit?tab=t.0
 var GRASSLAND_PROB_IC = ee.ImageCollection(
   'projects/global-pasture-watch/assets/ggc-30m/v1/nat-semi-grassland_p'
 );
