@@ -7,17 +7,154 @@ import joblib
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
-from sklearn.linear_model import RidgeCV
+from sklearn.svm import SVR
+from sklearn.compose import TransformedTargetRegressor
+from sklearn.kernel_ridge import KernelRidge
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.ensemble import HistGradientBoostingRegressor
+from sklearn.linear_model import RidgeCV, HuberRegressor
 from sklearn.metrics import root_mean_squared_error, r2_score
 from sklearn.model_selection import train_test_split
 from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import StandardScaler
+from sklearn.preprocessing import StandardScaler, PowerTransformer
+import matplotlib.pyplot as plt
 
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)s [%(filename)s:%(lineno)d] %(message)s",
 )
 log = logging.getLogger(__name__)
+
+
+def write_actual_vs_predicted_scatterplots(
+    embeddings_table: pd.DataFrame,
+    embedding_band_names: list[str],
+    target_column_names: list[str],
+    models_output_directory: str,
+    plots_output_directory: str,
+    train_test_seed: int,
+) -> None:
+    """Writes actual-vs-predicted scatter plots (train/test highlighted) for each target.
+
+    Args:
+        embeddings_table: DataFrame containing embedding bands and target columns.
+        embedding_band_names: Names of embedding band columns.
+        target_column_names: Target columns to plot.
+        models_output_directory: Directory containing saved `ridge_<target>.joblib` models.
+        plots_output_directory: Directory to write plot PNG files.
+        train_test_seed: Random seed used to reproduce the same train/test split as training.
+
+    Returns:
+        None.
+    """
+    os.makedirs(plots_output_directory, exist_ok=True)
+
+    feature_matrix = embeddings_table[embedding_band_names].to_numpy(
+        dtype=float
+    )
+    sample_count = len(embeddings_table)
+    all_row_indices = np.arange(sample_count)
+
+    train_row_indices, test_row_indices = train_test_split(
+        all_row_indices,
+        test_size=0.2,
+        random_state=train_test_seed,
+    )
+
+    for target_name in tqdm(target_column_names, desc="Plots", unit="plot"):
+        model_path = os.path.join(
+            models_output_directory, f"ridge_{target_name}.joblib"
+        )
+        model_pipeline = joblib.load(model_path)
+
+        actual_values = embeddings_table[target_name].to_numpy(dtype=float)
+        predicted_values = model_pipeline.predict(feature_matrix)
+
+        actual_train_values = actual_values[train_row_indices]
+        predicted_train_values = predicted_values[train_row_indices]
+
+        actual_test_values = actual_values[test_row_indices]
+        predicted_test_values = predicted_values[test_row_indices]
+
+        train_r2 = r2_score(actual_train_values, predicted_train_values)
+        test_r2 = r2_score(actual_test_values, predicted_test_values)
+        test_rmse = root_mean_squared_error(
+            actual_test_values, predicted_test_values
+        )
+
+        value_min = float(min(actual_values.min(), predicted_values.min()))
+        value_max = float(max(actual_values.max(), predicted_values.max()))
+        value_range = value_max - value_min
+        padding = 0.02 * value_range if value_range > 0 else 1.0
+        axis_min = value_min - padding
+        axis_max = value_max + padding
+
+        figure, axis = plt.subplots(figsize=(6.5, 6.5), dpi=220)
+
+        axis.scatter(
+            actual_values[train_row_indices],
+            predicted_values[train_row_indices],
+            s=6,
+            alpha=0.06,
+            c="tab:blue",
+            edgecolors="none",
+            label="Train",
+        )
+
+        axis.scatter(
+            actual_values[test_row_indices],
+            predicted_values[test_row_indices],
+            s=10,
+            alpha=0.22,
+            c="tab:orange",
+            edgecolors="none",
+            label="Test",
+        )
+
+        axis.plot(
+            [axis_min, axis_max],
+            [axis_min, axis_max],
+            color="black",
+            linewidth=1.0,
+            alpha=0.8,
+        )
+
+        axis.set_title(f"{target_name}: Actual vs Predicted")
+        axis.set_xlabel("Actual")
+        axis.set_ylabel("Predicted")
+        axis.set_xlim(axis_min, axis_max)
+        axis.set_ylim(axis_min, axis_max)
+        axis.set_aspect("equal", adjustable="box")
+        axis.grid(True, alpha=0.2)
+
+        axis.text(
+            0.05,
+            0.95,
+            f"Train R² = {train_r2:.3f}\n"
+            f"Test R² = {test_r2:.3f}\n"
+            f"Test RMSE = {test_rmse:.3f}",
+            transform=axis.transAxes,
+            va="top",
+            ha="left",
+            fontsize=9,
+            bbox=dict(
+                boxstyle="round,pad=0.25",
+                facecolor="white",
+                alpha=0.85,
+                edgecolor="none",
+            ),
+        )
+
+        axis.legend(loc="lower right", frameon=True, framealpha=0.9)
+
+        output_plot_path = os.path.join(
+            plots_output_directory, f"actual_vs_predicted_{target_name}.png"
+        )
+        figure.tight_layout()
+        figure.savefig(output_plot_path, bbox_inches="tight")
+        plt.close(figure)
+
+        log.info("Wrote plot: %s", output_plot_path)
 
 
 def load_aim_csv_table(
@@ -367,6 +504,26 @@ def load_or_create_embeddings_table(
     return embeddings_table
 
 
+def _identity(x):
+    return x
+
+
+def _square(x):
+    return x**2
+
+
+def _get_target_transform_funcs(transform_name: str):
+    if transform_name == "none":
+        return _identity, _identity
+    if transform_name == "log1p":
+        return np.log1p, np.expm1
+    if transform_name == "sqrt":
+        return np.sqrt, _square
+    if transform_name == "asinh":
+        return np.arcsinh, np.sinh
+    raise ValueError(f"Unknown target transform: {transform_name}")
+
+
 def train_ridge_models_and_write_metrics(
     embeddings_table: pd.DataFrame,
     embedding_band_names: list[str],
@@ -375,6 +532,7 @@ def train_ridge_models_and_write_metrics(
     metrics_output_csv_path: str,
     ridge_alpha_grid: np.ndarray,
     train_test_seed: int,
+    target_transforms_by_name: dict[str, str],
 ) -> pd.DataFrame:
     """Trains one ridge regression per target and writes models + metrics to disk.
 
@@ -402,7 +560,8 @@ def train_ridge_models_and_write_metrics(
 
     metrics_rows: list[dict] = []
     for target_name in tqdm(target_column_names, desc="Targets", unit="target"):
-        log.info("Training ridge regression for target=%s", target_name)
+        regressor_name, transform_name = target_transforms_by_name[target_name]
+        log.info("Training regression for target=%s", target_name)
         target_vector = embeddings_table[target_name].to_numpy(dtype=float)
 
         train_features, test_features, train_targets, test_targets = (
@@ -413,35 +572,95 @@ def train_ridge_models_and_write_metrics(
                 random_state=train_test_seed,
             )
         )
+        pipeline_list = []
+        if regressor_name in ("ridge", "krr", "huber"):
+            pipeline_list.append(("scaler", StandardScaler()))
+        if regressor_name == "ridge":
+            pipeline_list.append(
+                ("ridge", RidgeCV(alphas=ridge_alpha_grid, cv=5))
+            )
+        elif regressor_name == "huber":
+            pipeline_list.append(("huber", HuberRegressor()))
+        elif regressor_name == "krr":
+            pipeline_list.append(("krr", KernelRidge(kernel="rbf")))
+        elif regressor_name == "rf":
+            print("*******************")
+            pipeline_list.append(
+                (
+                    "rf",
+                    RandomForestRegressor(
+                        n_estimators=600,
+                        max_depth=25,
+                        n_jobs=-1,
+                        min_samples_leaf=3,
+                        min_samples_split=2,
+                        bootstrap=True,
+                        oob_score=True,
+                        max_features="sqrt",
+                        random_state=train_test_seed,
+                    ),
+                )
+            )
+        elif regressor_name == "hgsbr":
+            pipeline_list.append(
+                (
+                    "hgsbr",
+                    HistGradientBoostingRegressor(
+                        max_iter=1200,
+                        learning_rate=0.03,
+                        max_depth=8,
+                        min_samples_leaf=10,
+                        l2_regularization=0.1,
+                        max_bins=255,
+                        random_state=train_test_seed,
+                    ),
+                )
+            )
 
-        model_pipeline = Pipeline(
-            [
-                ("scaler", StandardScaler()),
-                ("ridge", RidgeCV(alphas=ridge_alpha_grid, cv=5)),
-            ]
-        )
+        base_pipeline = Pipeline(pipeline_list)
+
+        if transform_name == "box-cox":
+            y_transformer = PowerTransformer(
+                method="yeo-johnson",
+                standardize=False,
+            )
+
+            model = TransformedTargetRegressor(
+                regressor=base_pipeline,
+                transformer=y_transformer,
+            )
+        else:
+            func, inverse_func = _get_target_transform_funcs(transform_name)
+            model = TransformedTargetRegressor(
+                regressor=base_pipeline,
+                func=func,
+                inverse_func=inverse_func,
+                check_inverse=False,
+            )
 
         fit_start_time = time.time()
-        model_pipeline.fit(train_features, train_targets)
+        eps = 1e-6
+        train_sigma = 0.10 * np.maximum(np.abs(train_targets), eps)
+        train_weights = 1.0 / (train_sigma**2)
+
+        fit_kwargs = {f"{regressor_name}__sample_weight": train_weights}
+        model.fit(train_features, train_targets, **fit_kwargs)
         fit_duration_seconds = time.time() - fit_start_time
 
-        test_predictions = model_pipeline.predict(test_features)
+        test_predictions = model.predict(test_features)
 
         test_r2 = r2_score(test_targets, test_predictions)
         test_rmse = root_mean_squared_error(test_targets, test_predictions)
-        selected_alpha = float(model_pipeline.named_steps["ridge"].alpha_)
-
         model_output_path = os.path.join(
             models_output_directory, f"ridge_{target_name}.joblib"
         )
-        joblib.dump(model_pipeline, model_output_path)
+        joblib.dump(model, model_output_path)
 
         log.info(
             "Done target=%s | r2=%.4f rmse=%.4f alpha=%s | fit_time=%.2fs | saved=%s",
             target_name,
             test_r2,
             test_rmse,
-            selected_alpha,
             fit_duration_seconds,
             model_output_path,
         )
@@ -452,7 +671,7 @@ def train_ridge_models_and_write_metrics(
                 "n": int(len(target_vector)),
                 "r2": float(test_r2),
                 "rmse": float(test_rmse),
-                "alpha": selected_alpha,
+                "y_transform": transform_name,
             }
         )
 
@@ -485,10 +704,16 @@ def main() -> None:
 
     target_column_names = [
         "Plant_sp_count",
-        "BareSoilCover",
-        "TotalFoliarCover",
-        "FH_TotalLitterCover",
+        # "BareSoilCover",
+        # "TotalFoliarCover",
+        # "FH_TotalLitterCover",
     ]
+    target_transforms_by_name = {
+        "Plant_sp_count": ("hgsbr", "none"),
+        # "BareSoilCover": ("ridge", "none"),
+        # "TotalFoliarCover": ("ridge", "none"),
+        # "FH_TotalLitterCover": ("ridge", "none"),
+    }
 
     ridge_alpha_grid = np.logspace(-3, 3, 13)
     train_test_seed = 42
@@ -529,9 +754,20 @@ def main() -> None:
         metrics_output_csv_path=metrics_output_csv_path,
         ridge_alpha_grid=ridge_alpha_grid,
         train_test_seed=train_test_seed,
+        target_transforms_by_name=target_transforms_by_name,
     )
 
     print(metrics_table.to_string(index=False))
+
+    plots_output_directory = os.path.join(models_output_directory, "plots")
+    write_actual_vs_predicted_scatterplots(
+        embeddings_table=embeddings_table,
+        embedding_band_names=embedding_band_names,
+        target_column_names=target_column_names,
+        models_output_directory=models_output_directory,
+        plots_output_directory=plots_output_directory,
+        train_test_seed=train_test_seed,
+    )
 
 
 if __name__ == "__main__":
