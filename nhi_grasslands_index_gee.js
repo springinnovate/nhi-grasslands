@@ -128,13 +128,19 @@ function buildLayers() {
   Map.addLayer(
     probabilityStabilityMask.selfMask(),
     { min: 0, max: 1, palette: ["00aa00"] },
-    "Probability grass stability " + START_YEAR + "-" + END_YEAR,
+    "Probability (" +
+      GRASSLAND_PROB_THRESHOLD +
+      "%) grass stability " +
+      START_YEAR +
+      "-" +
+      END_YEAR,
     true
   );
 
   var annualLowHiiBinary = annualBinaryFromCollectionReduced(
     HII_IC,
     function (annualIc) {
+      // mean just makes it go to an image, the input is an image coll
       return annualIc.mean().divide(7000).lt(HII_THRESHOLD);
     }
   );
@@ -188,7 +194,7 @@ function buildLayers() {
 }
 
 makeNumberRow(
-  "Grassland prob (0-100) >=",
+  "Grassland prob (0-100%) >=",
   GRASSLAND_PROB_THRESHOLD,
   function (v) {
     GRASSLAND_PROB_THRESHOLD = v;
