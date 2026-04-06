@@ -151,6 +151,11 @@ class LayerExportPlugin:
     bucket = "ecoshard-root"
     export_root = "gee_export"
     extra_export_kwargs = {}
+    force_download = False
+
+    def __init__(self, **kwargs):
+        for k, v in kwargs.items():
+            setattr(self, k, v)
 
     def iter_windows(self):
         yield ExportWindow(label="all")
@@ -204,6 +209,54 @@ class GrasslandProbabilityLayer(LayerExportPlugin):
     def aliases(self, window):
         year = window.meta["year"]
         return (f"nat_semi_grassland_p_{year}",)
+
+    def build_image(self, window):
+        return ee.Image(
+            ee.ImageCollection(self.collection_id)
+            .filterDate(window.start, window.end)
+            .first()
+        )
+
+    def region(self, image, window):
+        return ee.Geometry.Rectangle([-180, -90, 180, 90], geodesic=False)
+
+
+class HumanImpactIndex(LayerExportPlugin):
+    layer_name = "hii"
+    version = "v1"
+    collection_id = "projects/HII"
+
+    def iter_windows(self):
+        return year_windows(2000, 2022)
+
+    def aliases(self, window):
+        year = window.meta["year"]
+        return f"hii_{year}"
+
+    def build_image(self, window):
+        return ee.Image(
+            ee.ImageCollection(self.collection_id)
+            .filterDate(window.start, window.end)
+            .first()
+        )
+
+    def region(self, image, window):
+        return ee.Geometry.Rectangle([-180, -90, 180, 90], geodesic=False)
+
+
+class AnnualDominantClassofGrasslands(LayerExportPlugin):
+    layer_name = "grassland_c"
+    version = "v1"
+    collection_id = (
+        "projects/global-pasture-watch/assets/ggc-30m/v1/grassland_c"
+    )
+
+    def iter_windows(self):
+        return year_windows(2012, 2012)
+
+    def aliases(self, window):
+        year = window.meta["year"]
+        return f"annual_dominant_grassland_class_{year}"
 
     def build_image(self, window):
         return ee.Image(
@@ -274,7 +327,7 @@ def run_export_layers(layers):
     for layer in layers:
         for plan in layer.plans():
             matches = blocking_matches(task_states, plan.search_descriptions)
-            if matches:
+            if matches and not layer.force_download:
                 print(
                     f"skipping {plan.description} because existing task(s) found: {matches}"
                 )
@@ -302,7 +355,8 @@ def main():
     init_ee()
 
     layers = [
-        Era5MonthlyTemperatureLayer(),
+        # Era5MonthlyTemperatureLayer(),
+        # AnnualDominantClassofGrasslands(),
     ]
 
     run_export_layers(layers)
