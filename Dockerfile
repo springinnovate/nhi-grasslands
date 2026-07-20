@@ -1,3 +1,5 @@
+# Build and run docker container as:
+# docker build -t gee_env . && docker run --rm -it -v %CD%:/workdir  gee_env
 FROM python:3.11-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
