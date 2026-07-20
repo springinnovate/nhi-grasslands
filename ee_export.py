@@ -224,20 +224,23 @@ class GrasslandProbabilityLayer(LayerExportPlugin):
 class HumanImpactIndex(LayerExportPlugin):
     layer_name = "hii"
     version = "v1"
-    collection_id = "projects/HII"
+    collection_id = "projects/HII/v1/hii"
 
     def iter_windows(self):
-        return year_windows(2000, 2022)
+        return year_windows(2001, 2022)
 
     def aliases(self, window):
         year = window.meta["year"]
         return f"hii_{year}"
 
     def build_image(self, window):
+        print(self.collection_id)
+        print(window.start, window.end)
         return ee.Image(
             ee.ImageCollection(self.collection_id)
             .filterDate(window.start, window.end)
             .first()
+            .toInt()
         )
 
     def region(self, image, window):
@@ -357,6 +360,7 @@ def main():
     layers = [
         # Era5MonthlyTemperatureLayer(),
         # AnnualDominantClassofGrasslands(),
+        HumanImpactIndex(),
     ]
 
     run_export_layers(layers)
