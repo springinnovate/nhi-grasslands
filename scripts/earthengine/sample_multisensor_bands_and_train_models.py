@@ -828,10 +828,10 @@ def train_ridge_models_and_write_metrics(
 
 def main() -> None:
     embeddings_cache_parquet_path = (
-        "./data/allenai_with_satellite_raw_bands.parquet"
+        "./data/processed/allenai_with_satellite_raw_bands.parquet"
     )
-    input_csv_path = "./data/allenai_formatted_AIM_terradata.csv"
-    models_output_directory = "./models"
+    input_csv_path = "./data/processed/allenai_formatted_AIM_terradata.csv"
+    models_output_directory = "./outputs/models"
     metrics_output_csv_path = os.path.join(
         models_output_directory, "metrics.csv"
     )

@@ -1,0 +1,34 @@
+# Local credentials
+secrets/
+*.pem
+*.key
+
+# Python runtime/cache files
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+
+# Local data products and caches
+data/processed/*
+!data/processed/.gitkeep
+data/external/*
+!data/external/.gitkeep
+data/*.parquet
+data/*.gpkg
+data/allenai_formatted_AIM_terradata*.csv
+data/point_distribution.png
+*.parquet
+*.gpkg
+
+# Generated outputs
+outputs/models/*
+!outputs/models/.gitkeep
+/models/
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
