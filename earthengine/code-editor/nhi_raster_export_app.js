@@ -1,4 +1,4 @@
-var DEFAULT_YEAR = 2019;
+var EXPORT_YEARS = [2018, 2019];
 var DEFAULT_DRIVE_FOLDER = "gee_response_variables";
 var DEFAULT_MAX_PIXELS = 1e13;
 var EXPORT_CRS = "EPSG:4326";
@@ -728,26 +728,33 @@ function zeroPad(value, width) {
     return text;
 }
 
-function exportBandName(layerDefinition, layerNumber) {
-    return "d" + zeroPad(layerNumber, 2) + "_" + slug(layerDefinition.name);
+function exportBandName(layerDefinition, layerNumber, year) {
+    return (
+        "y" +
+        year +
+        "_d" +
+        zeroPad(layerNumber, 2) +
+        "_" +
+        slug(layerDefinition.name)
+    );
 }
 
-function exportName(year, ecoregionName, ecoregionNumber, thresholds) {
+function exportName(years, ecoregionName, ecoregionNumber, thresholds) {
     var ecoregionSlug = slug(ecoregionName) || "unnamed_ecoregion";
     var parts = [
         ecoregionSlug,
         "e" + zeroPad(ecoregionNumber, 4),
         "response_variables",
-        slug("year_" + year)
+        slug("years_" + years.join("_"))
     ];
     return parts.concat(thresholdNameParts(thresholds)).join("_");
 }
 
-function buildExportStack(year, thresholds) {
+function buildYearExportStack(year, thresholds) {
     var firstLayer = LAYER_DEFINITIONS[0];
     var stack = firstLayer
         .build(year, thresholds)
-        .rename(exportBandName(firstLayer, 1));
+        .rename(exportBandName(firstLayer, 1, year));
 
     for (
         var layerIndex = 1;
@@ -758,7 +765,17 @@ function buildExportStack(year, thresholds) {
         stack = stack.addBands(
             layerDefinition
                 .build(year, thresholds)
-                .rename(exportBandName(layerDefinition, layerIndex + 1))
+                .rename(exportBandName(layerDefinition, layerIndex + 1, year))
+        );
+    }
+    return stack;
+}
+
+function buildExportStack(years, thresholds) {
+    var stack = buildYearExportStack(years[0], thresholds);
+    for (var yearIndex = 1; yearIndex < years.length; yearIndex++) {
+        stack = stack.addBands(
+            buildYearExportStack(years[yearIndex], thresholds)
         );
     }
     return stack;
@@ -808,7 +825,7 @@ function stageAllEcoregionExports() {
     var thresholds = defaultReferenceThresholds();
     var ecoregions = orderedEcoregions();
     var ecoregionList = ecoregions.toList(ecoregions.size());
-    var exportStack = buildExportStack(DEFAULT_YEAR, thresholds);
+    var exportStack = buildExportStack(EXPORT_YEARS, thresholds);
 
     ecoregions
         .aggregate_array(ECOREGION_NAME_PROPERTY)
@@ -827,7 +844,7 @@ function stageAllEcoregionExports() {
                     .Feature(ecoregionList.get(ecoregionIndex))
                     .geometry();
                 var name = exportName(
-                    DEFAULT_YEAR,
+                    EXPORT_YEARS,
                     String(ecoregionName),
                     ecoregionNumber,
                     thresholds
@@ -881,16 +898,18 @@ controlPanel.add(
 );
 controlPanel.add(
     ui.Label(
-        "This run stages one multiband raster task per maybe-grassland ecoregion. Each raster contains every response-variable dataset, and tasks are ordered by feature area from smallest to largest."
+        "This run stages one multiband raster task per maybe-grassland ecoregion. Each raster contains every response-variable dataset for 2018 and 2019, and tasks are ordered by feature area from smallest to largest."
     )
 );
 controlPanel.add(
     ui.Label(
-        "Year: " +
-            DEFAULT_YEAR +
+        "Years: " +
+            EXPORT_YEARS.join(", ") +
             " | Drive folder: " +
             DEFAULT_DRIVE_FOLDER +
-            " | Grid: per-layer scale, " +
+            " | Grid: " +
+            EXPORT_SCALE_METERS +
+            " m, " +
             EXPORT_CRS
     )
 );
