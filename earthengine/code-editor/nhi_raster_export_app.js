@@ -1,4 +1,4 @@
-var DEFAULT_YEAR = 2005;
+var DEFAULT_YEAR = 2019;
 var DEFAULT_DRIVE_FOLDER = "gee_response_variables";
 var DEFAULT_MAX_PIXELS = 1e13;
 var EXPORT_CRS = "EPSG:4326";
@@ -691,13 +691,13 @@ var LAYER_DEFINITIONS = [
     )
 ];
 
-function exportImage(image, region, exportScale) {
+function exportImage(image, region) {
     var exportGeometry = region.transform(ee.Projection(EXPORT_CRS), 1);
     return image
         .updateMask(MAYBE_GRASSLAND_ECOREGION_MASK)
         .reproject({
             crs: EXPORT_CRS,
-            scale: exportScale
+            scale: EXPORT_SCALE_METERS
         })
         .clip(exportGeometry)
         .toFloat();
@@ -728,26 +728,40 @@ function zeroPad(value, width) {
     return text;
 }
 
-function exportName(
-    layerDefinition,
-    layerNumber,
-    year,
-    ecoregionName,
-    ecoregionNumber,
-    thresholds
-) {
+function exportBandName(layerDefinition, layerNumber) {
+    return "d" + zeroPad(layerNumber, 2) + "_" + slug(layerDefinition.name);
+}
+
+function exportName(year, ecoregionName, ecoregionNumber, thresholds) {
     var ecoregionSlug = slug(ecoregionName) || "unnamed_ecoregion";
     var parts = [
         ecoregionSlug,
         "e" + zeroPad(ecoregionNumber, 4),
-        slug(layerDefinition.name),
-        "d" + zeroPad(layerNumber, 2),
+        "response_variables",
         slug("year_" + year)
     ];
-    if (layerDefinition.isReferenceLayer) {
-        parts = parts.concat(thresholdNameParts(thresholds));
+    return parts.concat(thresholdNameParts(thresholds)).join("_");
+}
+
+function buildExportStack(year, thresholds) {
+    var firstLayer = LAYER_DEFINITIONS[0];
+    var stack = firstLayer
+        .build(year, thresholds)
+        .rename(exportBandName(firstLayer, 1));
+
+    for (
+        var layerIndex = 1;
+        layerIndex < LAYER_DEFINITIONS.length;
+        layerIndex++
+    ) {
+        var layerDefinition = LAYER_DEFINITIONS[layerIndex];
+        stack = stack.addBands(
+            layerDefinition
+                .build(year, thresholds)
+                .rename(exportBandName(layerDefinition, layerIndex + 1))
+        );
     }
-    return parts.join("_");
+    return stack;
 }
 
 function firstAvailableProperty(feature, propertyNames, fallback) {
@@ -794,6 +808,7 @@ function stageAllEcoregionExports() {
     var thresholds = defaultReferenceThresholds();
     var ecoregions = orderedEcoregions();
     var ecoregionList = ecoregions.toList(ecoregions.size());
+    var exportStack = buildExportStack(DEFAULT_YEAR, thresholds);
 
     ecoregions
         .aggregate_array(ECOREGION_NAME_PROPERTY)
@@ -811,42 +826,29 @@ function stageAllEcoregionExports() {
                 var region = ee
                     .Feature(ecoregionList.get(ecoregionIndex))
                     .geometry();
-
-                LAYER_DEFINITIONS.forEach(function (
-                    layerDefinition,
-                    layerIndex
-                ) {
-                    var name = exportName(
-                        layerDefinition,
-                        layerIndex + 1,
-                        DEFAULT_YEAR,
-                        String(ecoregionName),
-                        ecoregionNumber,
-                        thresholds
-                    );
-                    var exportScale =
-                        layerDefinition.exportScale || EXPORT_SCALE_METERS;
-                    Export.image.toDrive({
-                        image: exportImage(
-                            layerDefinition.build(DEFAULT_YEAR, thresholds),
-                            region,
-                            exportScale
-                        ),
-                        description: name,
-                        folder: DEFAULT_DRIVE_FOLDER,
-                        fileNamePrefix: name,
-                        region: region,
-                        crs: EXPORT_CRS,
-                        scale: exportScale,
-                        maxPixels: DEFAULT_MAX_PIXELS
-                    });
-                    queuedTaskCount += 1;
+                var name = exportName(
+                    DEFAULT_YEAR,
+                    String(ecoregionName),
+                    ecoregionNumber,
+                    thresholds
+                );
+                Export.image.toDrive({
+                    image: exportImage(exportStack, region),
+                    description: name,
+                    folder: DEFAULT_DRIVE_FOLDER,
+                    fileNamePrefix: name,
+                    region: region,
+                    crs: EXPORT_CRS,
+                    scale: EXPORT_SCALE_METERS,
+                    maxPixels: DEFAULT_MAX_PIXELS
                 });
+                queuedTaskCount += 1;
             });
 
             statusLabel.setValue(
                 queuedTaskCount +
-                    " Drive export task(s) staged for " +
+                    " Drive export task(s) staged: one multiband raster for " +
+                    "each of " +
                     ecoregionNames.length +
                     " ecoregion(s), ordered from smallest to largest. " +
                     "Open the Tasks tab and click Run on each task."
@@ -879,7 +881,7 @@ controlPanel.add(
 );
 controlPanel.add(
     ui.Label(
-        "This run stages every response-variable dataset for every maybe-grassland ecoregion. Batches are ordered by feature area from smallest to largest."
+        "This run stages one multiband raster task per maybe-grassland ecoregion. Each raster contains every response-variable dataset, and tasks are ordered by feature area from smallest to largest."
     )
 );
 controlPanel.add(
